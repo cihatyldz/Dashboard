@@ -1,0 +1,554 @@
+#Paket Yuklemeleri
+require(shiny)            #Veriyi duzenli hale getirmek icin gerekli fonksiyonlari kullanma
+require(highcharter)      #Ucus Verisi bilgilendirmesi icin beyaz kutucuk olusturulmasi
+require(shinydashboard)   #Paketi gerektirdigi anlamina gelir
+require(ggplot2)          #Plot ciktilarini saglamasi icin kulanilir.
+require(dplyr)            #Bazi gerekli fonksiyonlar icin kullanilir
+require(tidyr)            #Bazi fonksiyonlar icin tidyr gerektirir.
+library(readxl)           #Hava durumu verisini cekmek icin kullanilir.
+library(shinydashboard)   #Dashboard olusturmak icin kullanilir
+library(nycflights13)     #Veri setimizin kutuphanesi.
+library(r2d3)             #Java ile grafiklerin olusturulmasi.
+library(shiny)            #Veriyi duzenli hale getirmek icin gerekli fonksiyonlari kullanma
+library(purrr)            #Tidyverse alternatif kutuphanesi.
+library(rlang)            #Cekirdek r ozelliklerini duzenli degerlendirme gibi kullanmak icin
+library(stringr)          #Fonksiyon kullanimi.
+library(DT)               #map,output gibi fonksiyonlarin kullanilmasi.
+library(leaflet)
+library(tidyverse)
+#Gosterge tablosu Duzenleme
+
+#Karakter vektorlerini tanimlama (Girisler icin uygun formata getirmek)
+
+#Veri seti icindeki havayolu ismi ve tasiyisi firma ismini veri icin kullanilacak hale getirdik.
+airline_list <- airlines %>%    
+    collect() %>%            
+    split(.$name) %>%           
+    map(~ .$carrier)
+
+#flights verisi icindeki aylari detaylandirarak dashboarda uygun hale getirdik.
+data<-flights
+month_list <- as.list(1:12) %>%
+    set_names(month.name)
+
+month_list$`All Year` <- 99    #Butun aylari iceren kategorinin olusturulmasini sagladik.
+
+
+#UI YANI GOSTERGE TABLOSUNU TANIMLAMA BASLANGICI 
+ui<-dashboardPage(
+    #defines header
+    skin = "red",
+    
+#Dashboardun Basligi
+    dashboardHeader(
+        title="Ucus Detaylari" ,
+        dropdownMenu()
+    ),
+#Gosterge tablosunun kenar cubugunu tanimlama
+    dashboardSidebar(
+        sidebarMenu(
+#kenar cubugu menu detaylandirmasi
+            menuItem("Arayuz", tabName = "dashboard", icon = icon("dashboard"))
+        ),
+        
+        selectInput(                      #selectinput ile havayolu secim listesini olusturduk.
+            inputId = "airline",          
+            label = "Hayayolu Sirketi:",
+            choices = airline_list,
+            selected = "DL",
+            selectize = FALSE
+        ),
+        sidebarMenu(
+            selectInput(                #Aylar icin secim listesi olusturduk.
+                inputId = "month",
+                label = "Aylar:",
+                choices = month_list,
+                selected = 99,
+                size = 13,
+                selectize = FALSE
+            ),
+            
+            
+            actionLink("remove", "Grafigi Sifirlama")
+        )
+    ),
+#dashboard arayuzunu tanimlama.TabPanel ile acilacak pencereyi ve ic detaylandirmasini yaptik.
+    dashboardBody(
+        tabsetPanel(
+            id = "tabs",
+            tabPanel("Flights Hakkinda",h2("Flights Veri Seti",style="text-align:center"),
+                     br(),
+                     br(),
+                     box(width=12,height="500px",
+                         p(style="font-size:24px",strong("Flihgts"),"nycflights13 paketi icinde bulunmaktadir.Bu paket 2013 yili icindeki New York City eyaletinden Amerika Birlesik Devletlerinin diger eyaletlerine, Porto Riko ve Amerika Virgin Adalari'na varis noktalarina giden tum ucuslar hakkinda bilgi verir (orn. EWR, JFK ve LGA).Icerisinde toplam 336,776 ucus bilgisini barindirir.Ucuslardaki sorunlara neyin sebep oldugunu anlayabilmek icin, bir dizi baska yararli veri kumesini de icerir.
+                          Bu veri kumeleri ise Weather(Hava Durumu Verisi), Airports(Havaalanlari), Airlines(Hava Yollari Sirketleri)dir.Veri kumelerini kisaca aciklayacak olursak; Flights ucuslar hakkindaki detayli bilgiyi, airlines hava yolu sirketlerinin bilgilerini, airports havaalanlarinin konumlarini,detaylarini vb, weather ise ucuslar esnasinda mevcut olan havadurumu bilgilerini icerir."),
+                         
+                         p(style="font-size:24px",strong("Flights veri seti icindeki degiskenler; "), " year: Yil, month: Ay, day: Gun, dep_time: Kalkis Zamani, sched_dep_time: Tarifeli Kalkis Zamani, dep_delay: Kalkis Rotari, arr_time: Varis Zamani, sched_dep_time: Tarifeli Varis Zamani, arr_delay: Varis Rotari, carrier: Tasiyici Hava Yolu Sirketi, flight: Ucus Numarasi, tailnum: Kuyruk Numarasi, origin: Kalkis Havaalani, dest: Varis Havaalani, air_time: Havada Gecirilen Sure, distance: Havaalanlari Arasindaki Mesafe, hour: Saat, minute: Dakika"),
+                         p(style="font-size:24px",strong("Dashboardimizda"), "ise bu veri setini detaylandirmayi hedefledik.Yani veri seti hakkinda bilgisi olmayan kisi dashboardimiza baktiginda veri seti icerisindeki degiskenleri, grafiklerin ifade ettiklerini, neyin amaclandigini anlayabilir hale gelmeliydi.Bunun icin secilen ay-gun icinde yapilan ucus sayisi,  gunluk ortalama ucuslar, ucus rotar yuzdesi, secilen ay-gun icindeki ucuslarin detayli bilgisinin gosterilmesi, secilen ay-gun icinde en yogun 10 havaalaninin detaylandirilmasi, kalkis zamaninin 
+                           histogramini ve son olarak havaalanlarinin haritalarini dashboardimiza ekledik. ")
+                     )),
+#Olusturulacak Grafigimiz icin pencere olusturup grafik cikti isimlerini belirledik.
+            tabPanel(
+                title = "Grafik",
+                value = "page1",
+                fluidRow(
+                    valueBoxOutput("total_flights"),
+                    valueBoxOutput("per_day"),
+                    valueBoxOutput("percent_delayed")
+                ),
+#Grafik ciktilarinin 6 satir kaplayacagi ve server ciksindaki isminin belirlenmesi islemi.              
+                 fluidRow(),
+                fluidRow(
+                    column(
+                        width = 6,
+                        d3Output("group_totals")
+                    ),
+                    column(
+                        width = 6,
+                        d3Output("top_airports")
+                    )
+                )
+            ),
+#Sirayla histogram hava durumu ve havaalanlari icin pencere olusturulup detaylandirilmasi.
+            tabPanel("Histogram",plotOutput("dep_delay_plot")),
+            tabPanel("Hava Durumu",fluidRow(column(width=12,d3Output("group_weather")))),tabPanel("Harita",fluidPage(
+              selectInput(inputId = "Data", 
+                          label = "Havaalanlari",
+                          choices = c("Atlanta Hartsfield Jackson Uluslararasi Havalimani",
+                                      "Boston Logan Uluslararasi Havaalani",
+                                      "Charleston Uluslararasi Havaalani",
+                                      "Chicago Midway Uluslararasi Havaalani",
+                                      "Dallas/Fort Worth Uluslararasi Havalimani",
+                                      "Detroit Metropolitan Havaalani",
+                                      "Fort Lauderdale Hollywood Uluslararasi Havaalani",
+                                      "George Bush Kitalararasi Havalimani",
+                                      "Indianapolis Uluslararasi Havaalani",
+                                      "John F. Kennedy Uluslararasi Havalimani",
+                                      "LaGuardia Havalimani",
+                                      "Los Angeles Uluslararasi Havalimani",
+                                      "Louis Armstrong New Orleans Uluslararasi Havalimani",
+                                      "Miami Uluslararasi Havaalani",
+                                      "Newark Liberty Havaalani","LaGuardia Havalimani",
+                                      "O'Hare Uluslararasi Havalimani",
+                                      "Orlando Uluslararasi Havaalani",
+                                      "Palm Beach Uluslararasi Havaalani",
+                                      "Philadelphia Uluslararasi Havaalani",
+                                      "Pittsburgh Uluslararasi Havaalani",
+                                      "Southwest Florida Uluslararasi Havaalani",
+                                      "Washington Dulles Uluslararasi Havaalani")),
+              
+              leafletOutput("map"))) 
+            
+        )#tabsetpanel sonu
+    )#dashboard body sonu
+    
+)#UI YANI GOSTERGE TABLOSUNU TANIMLAMA BITISI
+
+
+#SERVER KISMININ OLUSTURULMASI
+server <- function(input, output, session) {
+    tab_list <- NULL
+    
+#Taban fonksiyonlar icin reactive komutunu kullandik
+#Gosterge tablosundaki tum ogelerin olusturdugu sql sorgusu kullanilacak
+#reactive degerlendirmemize izin verir.
+#Giris degiskenlerimiz asagida yer almaktadir.
+    
+#VERI SETLERINI BIRLESTIRIP KULLANILABILIR HALE GETIRMEK ICIN FONKSIYON OLUSTURUYORUZ.   
+    base_flights <- reactive({
+        res <- flights %>%
+            filter(carrier == input$airline) %>%
+            left_join(airlines, by = "carrier") %>%
+            rename(airline = name) %>%
+            left_join(airports, by = c("origin" = "faa")) %>%
+            rename(origin_name = name) %>%
+            select(-lat, -lon, -alt, -tz, -dst) %>%
+            left_join(airports, by = c("dest" = "faa")) %>%
+            rename(dest_name = name)
+        if (input$month != 99) res <- filter(res, month == input$month)
+        res
+    })
+    
+#HARITA EKLENMESI VE KOORDINATLARIN GIRILMESI
+    output$map=renderLeaflet({
+      if((input$Data) == "Atlanta Hartsfield Jackson Uluslararasi Havalimani"){
+        point = c(33.6407282, -84.42770009999998)
+      } 
+      if((input$Data) == "Boston Logan Uluslararasi Havaalani"){
+        point = c(42.365891, -71.017547)
+      }
+      if((input$Data) == "Charleston Uluslararasi Havaalani"){
+        point = c(32.894268, -80.038159)
+      }
+      if((input$Data) == "Chicago Midway Uluslararasi Havaalani"){
+        point = c(41.78677589999999, -87.75218840000002)
+      }
+      if((input$Data) == "Dallas/Fort Worth Uluslararasi Havalimani"){
+        point = c(32.8998091, -97.04033520000002)
+      }
+      if((input$Data) == "Detroit Metropolitan Havaalani"){
+        point = c(42.2161722, -83.3553842)
+      }
+      if((input$Data) == "Fort Lauderdale Hollywood Uluslararasi Havaalani"){
+        point = c(26.0742344, -80.15060219999998)
+      }
+      if((input$Data) == "George Bush Kitalararasi Havalimani"){
+        point = c(29.9902199, -95.33678270000001)
+      }
+      if((input$Data) == "Indianapolis Uluslararasi Havaalani"){
+        point = c(39.7168593, -86.29559519999998)
+      }
+      if((input$Data)=="John F. Kennedy Uluslararasi Havalimani"){
+        point=c(40.641311,-73.778139)
+      }
+      if((input$Data) == "LaGuardia Havalimani"){
+        point = c(40.7769271, -73.87396590000003)
+      } 
+      if((input$Data) == "Los Angeles Uluslararasi Havalimani"){
+        point = c(33.9415889, -118.40853)
+      } 
+      if((input$Data) == "Louis Armstrong New Orleans Uluslararasi Havalimani"){
+        point = c(29.991091, -90.25923)
+      } 
+       if((input$Data) == "Miami Uluslararasi Havaalani"){
+        point = c(25.795865, -80.28704570000002)
+      }
+      if((input$Data) == "Newark Liberty Havaalani"){
+        point = c(40.6895314, -74.17446239999998)
+      } 
+      if((input$Data) == "O'Hare Uluslararasi Havalimani"){
+        point = c(41.974163, -87.907321)
+      } 
+      if((input$Data) == "Orlando Uluslararasi Havaalani"){
+        point = c(28.4311577, -81.308083)
+      }
+      if((input$Data) == "Palm Beach Uluslararasi Havaalani"){
+        point = c(26.6857475, -80.09281650000003)
+      }
+      if((input$Data) == "Philadelphia Uluslararasi Havaalani"){
+        point = c(39.8743959, -75.24242290000001)
+      }
+      if((input$Data) == "Pittsburgh Uluslararasi Havaalani"){
+        point = c(40.4957722, -80.2413113)
+      }
+      if((input$Data) == "Portland International Jetport"){
+        point = c(40.4957722, -80.2413113)
+      }
+      if((input$Data) == "Southwest Florida Uluslararasi Havaalani"){
+        point = c(40.4957722, -80.2413113)
+      }
+      if((input$Data) == "Washington Dulles Uluslararasi Havaalani"){
+        point = c(38.9531162, -77.45653879999998)
+      }
+      
+      leaflet() %>% 
+        addProviderTiles("OpenStreetMap.Mapnik") %>%
+        addMarkers(lat=point[1], lng=point[2])
+    })
+    
+  
+#HISTOGRAM GRAFIGI EKLEME
+    output$dep_delay_plot <- renderPlot({
+        g<-ggplot(data = flights, mapping = aes(x = dep_time))
+        g<-g+geom_histogram()
+        g
+})
+    
+
+   
+#HAVA DURUMU EKLEME 
+    
+#HAVA DURUMU ICIN HARITA UPDATE ETME BASLANGICI (INTERNET UZERINDEN)
+    library(tidyverse)
+    library(httr)
+    library(lubridate)
+    get_asos <- function(station) {
+      url <- "http://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?"
+      query <- list(
+        station = station, data = "all",
+        year1 = "2013", month1 = "1", day1 = "1",
+        year2 = "2013", month2 = "12", day2 = "31", tz = "GMT",
+        format = "comma", latlon = "no", direct = "yes"
+      )
+
+      dir.create("data-raw/weather", showWarnings = FALSE, recursive = TRUE)
+      r <- GET(url, query = query, write_disk(paste0("./data-raw/weather/", station, ".csv")), progress())
+      stop_for_status(r)
+    }
+
+    stations <- c("JFK", "LGA", "EWR")
+    paths <- paste0(stations, ".csv")
+    missing <- stations[!(paths %in% dir("data-raw/weather/"))]
+    walk(missing, get_asos)
+
+    paths <- dir("data-raw/weather", full.names = TRUE)
+    all <- map(paths,
+               read_csv,
+               skip = 5,
+               na = "M",
+               col_names = TRUE,
+               col_types = cols(
+                   .default = col_double(),
+                   station = col_character(),
+                   valid = col_datetime(format = ""),
+                   skyc1 = col_character(),
+                   skyc2 = col_character(),
+                   skyc3 = col_character(),
+                   skyc4 = col_character(),
+                   wxcodes = col_character(),
+                   metar = col_character()
+               )
+    )#hava durumu icin harita update sonu
+
+#HAVA DURUMU ICIN VERI SETINI UYGUN HALE GETIRME.   
+     raw <- bind_rows(all)
+
+    raw2 <- raw %>%
+        select(
+            origin = station,
+            time = valid,
+            temp = tmpf,
+            dewp = dwpf,
+            humid = relh,
+            wind_dir = drct,
+            wind_speed = sknt,
+            wind_gust = gust,
+            precip = p01i,
+            pressure = mslp,
+            visib = vsby
+        ) %>%
+        mutate(
+            # convert to mph
+            wind_speed = wind_speed * 1.15078,
+            wind_gust = wind_gust * 1.15078,
+            # partition time into hour + minute
+            minute = minute(time),
+            time = update(time, minute = 0)
+        )
+
+    raw3 <- raw2 %>%
+        filter(minute <= 51) %>%
+        group_by(origin, time) %>%
+        summarise_all(max) %>%
+        ungroup()
+
+   weather_flights<-reactive({ weather <- raw3 %>%
+        mutate(
+            time = with_tz(time, "America/New_York"),
+            year = as.integer(year(time)),
+            month = as.integer(month(time)),
+            day = mday(time),
+            hour = hour(time)
+        ) %>%
+        filter(year == 2013L) %>%
+        select(origin, year:hour, temp:visib, time_hour = time)
+   })
+#Hava durumu verisi islendikten sonra grafiginin olusturulmasi    
+   output$group_weather <- renderD3({
+       grouped <- ifelse(input$month != 99, expr(day), expr(month))
+       
+       res <- weather_flights() %>%
+           group_by(!!grouped) %>%
+           tally() %>%
+           collect() %>%
+           mutate(
+               y = n,
+               x = !!grouped
+           ) %>%
+           select(x, y)
+       
+       if (input$month == 99) {
+           res <- res %>%
+               inner_join(
+                   tibble(x = 1:12, label = substr(month.name, 1, 3)),
+                   by = "x"
+               )
+       } else {
+           res <- res %>%
+               mutate(label = x)
+       }
+       r2d3(res, "col_plot.js")
+   })
+    
+    
+#UCUS SAYISINI OLUSTURMAK.
+    output$total_flights <- renderValueBox({
+        # Asagidaki kod veritabani icinde calisir.
+        # pull() sonuclari R a getirir.
+        # Dogrudan bir valueBox() ogesine yonlendirir.
+        base_flights() %>%
+            tally() %>%
+            pull() %>%
+            as.integer() %>%
+            prettyNum(big.mark = ",") %>%
+            valueBox(subtitle = "Ucus Sayisi")
+    })
+    
+    
+#GUNLUK ORTALAMA UCUSLARI OLUSTURMAK.
+    output$per_day <- renderValueBox({
+        # The following code runs inside the database
+        base_flights() %>%
+            group_by(day, month) %>%
+            tally() %>%
+            ungroup() %>%
+            summarise(avg = mean(n)) %>%
+            pull(avg) %>%
+            round() %>%
+            prettyNum(big.mark = ",") %>%
+            valueBox(
+                subtitle = "Gunluk Ortalama Ucuslar",
+                color = "blue"
+            ) 
+    })
+    
+#ROTARLI UCUS YUZDESI OLUSTURULMASI
+    output$percent_delayed <- renderValueBox({
+        base_flights() %>%
+            filter(!is.na(dep_delay)) %>%    #rotarin 15 dk dan fazla oldugu durumlarin secilmesi.
+            mutate(delayed = ifelse(dep_delay >= 15, 1, 0)) %>%
+            summarise(
+                delays = sum(delayed),
+                total = n()
+            ) %>%
+            mutate(percent = (delays / total) * 100) %>%
+            pull() %>%
+            round() %>%
+            paste0("%") %>%
+            valueBox(
+                subtitle = "Rotarli Ucus Yuzdesi",
+                color = "teal"
+            )
+    })
+    
+#ANA GRAFIGIMIZIN OLUSTURULMASI
+    output$group_totals <- renderD3({
+        grouped <- ifelse(input$month != 99, expr(day), expr(month)) #Grup icine all'in da dahil edilmesi.
+        
+        res <- base_flights() %>%
+            group_by(!!grouped) %>%
+            tally() %>%
+            collect() %>%
+            mutate(
+                y = n,
+                x = !!grouped
+            ) %>%
+            select(x, y)
+        
+        if (input$month == 99) {
+            res <- res %>%
+                inner_join(
+                    tibble(x = 1:12, label = substr(month.name, 1, 3)),  #Aylarin eklenmesi
+                    by = "x"
+                )
+        } else {
+            res <- res %>%
+                mutate(label = x)
+        }
+        r2d3(res, "col_plot.js")    #java script dosyasi kullanilarak grafigin olusturulmasi.
+    })
+    
+#EN COK KULLANILAN 10 HAVAALANI GRAGIFI OLUSTURULMASI
+        output$top_airports <- renderD3({
+        # The following code runs inside the database
+        base_flights() %>%
+            group_by(dest, dest_name) %>%
+            tally() %>%
+            collect() %>%
+            arrange(desc(n)) %>%
+            head(10) %>%
+            arrange(dest_name) %>%
+            mutate(dest_name = str_sub(dest_name, 1, 30)) %>%
+            rename(
+                x = dest,
+                y = n,
+                label = dest_name
+            ) %>%
+            r2d3("bar_plot.js")   #java script dosyasini kullanarak grafigin olusturulmasi.
+    })
+    
+    # Get details (server) --------------------------------------------
+    get_details <- function(airport = NULL, day = NULL) {
+        # Farkli gosterge tablosu etkinliklerine gore Cagrilabilecek genel ayrinti islevi olusturma
+        res <- base_flights()
+        if (!is.null(airport)) res <- filter(res, dest == airport)
+        if (!is.null(day)) res <- filter(res, day == !!as.integer(day))
+        
+        res %>%
+            head(100) %>%
+            select(
+                month, day, flight, tailnum,
+                dep_time, arr_time, dest_name,
+                distance
+            ) %>%
+            collect() %>%
+            mutate(month = month.name[as.integer(month)])
+    }
+    
+#AY / GUN SUTUN TIKLAMA OLUSTURULMASI (GRAFIGE TIKLANDIGINDA DETAYIN ACILMASI)
+    observeEvent(input$column_clicked != "", {
+        if (input$month == "99") {
+            updateSelectInput(session, "month", selected = input$column_clicked)
+        } else {
+            day <- input$column_clicked
+            month <- input$month
+            tab_title <- paste(
+                input$airline, "-", month.name[as.integer(month)], "-", day
+            )
+            if (!(tab_title %in% tab_list)) {
+                appendTab(
+                    inputId = "tabs",
+                    tabPanel(
+                        tab_title,
+                        DT::renderDataTable(
+                            get_details(day = day)
+                        )
+                    )
+                )
+                tab_list <<- c(tab_list, tab_title)
+            }
+            updateTabsetPanel(session, "tabs", selected = tab_title)
+        }
+    },
+    ignoreInit = TRUE
+    )
+    
+    
+#CUBUK GRAFIGININ TIKLANABILIR HALE GETIRILMESI
+    observeEvent(input$bar_clicked, {
+        airport <- input$bar_clicked
+        month <- input$month
+        tab_title <- paste(
+            input$airline, "-", airport,
+            if (month != 99) {
+                paste("-", month.name[as.integer(month)])
+            }
+        )
+        if (!(tab_title %in% tab_list)) {
+            appendTab(
+                inputId = "tabs",
+                tabPanel(
+                    tab_title,
+                    DT::renderDataTable(
+                        get_details(airport = airport)
+                    )
+                )
+            )
+            
+            tab_list <<- c(tab_list, tab_title)
+        }
+        updateTabsetPanel(session, "tabs", selected = tab_title)
+    })
+    
+#UZAK SEKMELERI OLUSTURMA 
+    observeEvent(input$remove, {
+        # Her biri arasinda gecis yapmak icin purr icinde walk komutunu kullanma.
+        # Panel sekmeleri ve onlari kaldima
+        tab_list %>%
+            walk(~ removeTab("tabs", .x))
+        tab_list <<- NULL
+    })
+    
+} #SERVER KAPANIS PARANTEZI
+
+shinyApp(ui, server)
